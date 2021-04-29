@@ -1,7 +1,7 @@
 ### Hi, I'm Will 👋
 My background is in food and beverage. I love to create things and want to learn how to create in this space. I look forward to colaborating with the community
 and becoming a rock star in this space.
-- 🔭 I’m currently working on completing my business administration undergraduate degree.
+- 🔭 I’m a recent undergraduate degree in business administration.
 - 🌱 I’m currently learning data visualization tools like MySQL, PowerBI
 - 🤔 I’m looking for help with learning how to break into the video game industry.
 - 💬 Ask me about food and beverage. I love to cook and make cocktails.
