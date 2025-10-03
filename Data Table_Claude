@@ -1,0 +1,418 @@
+-- ============================================================================
+-- WEEK 1: CORE DATA VALIDATION PATTERNS FOR DATA GOVERNANCE
+-- SQL SERVER MANAGEMENT STUDIO (SSMS) VERSION
+-- ============================================================================
+-- Purpose: Master the foundational SQL patterns used daily in data validation
+-- Compatible with: Microsoft SQL Server (2016+)
+-- ============================================================================
+
+-- STEP 1: CREATE SAMPLE DATASETS
+-- These represent typical scenarios you'll encounter:
+-- - Customer data across multiple systems
+-- - Transaction records requiring validation
+-- - Reference data with quality issues
+
+-- Source System: CRM Customer Data
+IF OBJECT_ID('crm_customers', 'U') IS NOT NULL DROP TABLE crm_customers;
+CREATE TABLE crm_customers (
+    customer_id INT,
+    email VARCHAR(255),
+    first_name VARCHAR(100),
+    last_name VARCHAR(100),
+    registration_date DATE,
+    country_code CHAR(2),
+    account_status VARCHAR(20),
+    created_at DATETIME,
+    updated_at DATETIME
+);
+
+INSERT INTO crm_customers VALUES
+(1001, 'john.doe@email.com', 'John', 'Doe', '2024-01-15', 'US', 'Active', '2024-01-15 10:30:00', '2024-01-15 10:30:00'),
+(1002, 'jane.smith@email.com', 'Jane', 'Smith', '2024-01-20', 'CA', 'Active', '2024-01-20 14:22:00', '2024-01-20 14:22:00'),
+(1003, NULL, 'Bob', 'Johnson', '2024-02-01', 'US', 'Pending', '2024-02-01 09:15:00', '2024-02-01 09:15:00'),
+(1004, 'alice.williams@email.com', 'Alice', 'Williams', '2024-02-10', NULL, 'Active', '2024-02-10 11:45:00', '2024-02-10 11:45:00'),
+(1005, 'charlie.brown@email.com', 'Charlie', 'Brown', '2024-03-05', 'UK', 'Inactive', '2024-03-05 16:20:00', '2024-03-05 16:20:00'),
+(1006, 'john.doe@email.com', 'John', 'Doe', '2024-01-15', 'US', 'Active', '2024-01-15 10:30:00', '2024-01-15 10:30:00'), -- Duplicate
+(1007, 'INVALID_EMAIL', 'Test', 'User', '2024-03-15', 'US', 'Active', '2024-03-15 08:00:00', '2024-03-15 08:00:00'),
+(1008, 'emily.davis@email.com', 'Emily', '', '2024-03-20', 'FR', 'Active', '2024-03-20 13:10:00', '2024-03-20 13:10:00'),
+(1009, 'mike.wilson@email.com', 'Mike', 'Wilson', '2025-12-01', 'US', 'Active', '2024-04-01 10:00:00', '2024-04-01 10:00:00'); -- Future date
+
+-- Target System: Billing Customer Data
+IF OBJECT_ID('billing_customers', 'U') IS NOT NULL DROP TABLE billing_customers;
+CREATE TABLE billing_customers (
+    customer_id INT,
+    email VARCHAR(255),
+    full_name VARCHAR(255),
+    billing_country CHAR(2),
+    account_type VARCHAR(20),
+    sync_date DATETIME
+);
+
+INSERT INTO billing_customers VALUES
+(1001, 'john.doe@email.com', 'John Doe', 'US', 'Premium', '2024-01-15 12:00:00'),
+(1002, 'jane.smith@email.com', 'Jane Smith', 'CA', 'Standard', '2024-01-20 15:00:00'),
+(1004, 'alice.williams@email.com', 'Alice Williams', 'GB', 'Premium', '2024-02-10 12:00:00'), -- Country mismatch
+(1005, 'charlie.brown@email.com', 'Charlie Brown', 'UK', 'Standard', '2024-03-05 17:00:00'),
+(1010, 'sarah.jones@email.com', 'Sarah Jones', 'US', 'Premium', '2024-04-15 10:00:00'); -- Not in CRM
+
+-- Transaction Data
+IF OBJECT_ID('transactions', 'U') IS NOT NULL DROP TABLE transactions;
+CREATE TABLE transactions (
+    transaction_id INT,
+    customer_id INT,
+    transaction_date DATE,
+    amount DECIMAL(10,2),
+    currency VARCHAR(3),
+    status VARCHAR(20)
+);
+
+INSERT INTO transactions VALUES
+(5001, 1001, '2024-01-16', 99.99, 'USD', 'Completed'),
+(5002, 1002, '2024-01-22', 149.50, 'CAD', 'Completed'),
+(5003, 1001, '2024-02-05', 199.99, 'USD', 'Completed'),
+(5004, 9999, '2024-02-10', 299.99, 'USD', 'Completed'), -- Orphaned record
+(5005, 1004, '2024-02-15', -50.00, 'GBP', 'Completed'), -- Negative amount
+(5006, 1005, '2024-03-10', 0.00, 'GBP', 'Completed'), -- Zero amount
+(5007, NULL, '2024-03-15', 125.00, 'USD', 'Pending'), -- NULL customer_id
+(5008, 1002, NULL, 89.99, 'CAD', 'Completed'); -- NULL date
+
+-- ============================================================================
+-- VALIDATION PATTERN 1: NULL VALUE DETECTION
+-- ============================================================================
+-- WHY: Missing critical data violates completeness requirements
+-- WHEN: Run this daily as part of data quality monitoring
+
+SELECT 
+    'crm_customers' AS table_name,
+    'email' AS column_name,
+    COUNT(*) AS null_count,
+    ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM crm_customers), 2) AS null_percentage
+FROM crm_customers
+WHERE email IS NULL
+
+UNION ALL
+
+SELECT 
+    'crm_customers',
+    'country_code',
+    COUNT(*),
+    ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM crm_customers), 2)
+FROM crm_customers
+WHERE country_code IS NULL
+
+UNION ALL
+
+SELECT 
+    'transactions',
+    'customer_id',
+    COUNT(*),
+    ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM transactions), 2)
+FROM transactions
+WHERE customer_id IS NULL
+
+UNION ALL
+
+SELECT 
+    'transactions',
+    'transaction_date',
+    COUNT(*),
+    ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM transactions), 2)
+FROM transactions
+WHERE transaction_date IS NULL;
+
+-- GOVERNANCE INSIGHT: Document acceptable null thresholds per field
+-- EXAMPLE: email should be 0%, country_code should be <1%
+
+
+-- ============================================================================
+-- VALIDATION PATTERN 2: DUPLICATE DETECTION
+-- ============================================================================
+-- WHY: Duplicates cause incorrect metrics and business decisions
+-- WHEN: Run before data loads and as part of weekly quality reports
+
+-- Method 1: Find exact duplicates across business key fields
+SELECT 
+    email,
+    first_name,
+    last_name,
+    COUNT(*) AS duplicate_count,
+    STRING_AGG(CAST(customer_id AS VARCHAR), ', ') AS duplicate_ids -- SQL Server 2017+
+FROM crm_customers
+WHERE email IS NOT NULL
+GROUP BY email, first_name, last_name
+HAVING COUNT(*) > 1;
+
+-- For SQL Server 2016 or earlier, use this instead:
+/*
+SELECT 
+    email,
+    first_name,
+    last_name,
+    COUNT(*) AS duplicate_count,
+    STUFF((
+        SELECT ', ' + CAST(customer_id AS VARCHAR)
+        FROM crm_customers c2
+        WHERE c2.email = c1.email 
+          AND c2.first_name = c1.first_name 
+          AND c2.last_name = c1.last_name
+        FOR XML PATH('')
+    ), 1, 2, '') AS duplicate_ids
+FROM crm_customers c1
+WHERE email IS NOT NULL
+GROUP BY email, first_name, last_name
+HAVING COUNT(*) > 1;
+*/
+
+-- Method 2: Find all records involved in duplicates (for cleanup)
+WITH duplicate_keys AS (
+    SELECT email, first_name, last_name
+    FROM crm_customers
+    WHERE email IS NOT NULL
+    GROUP BY email, first_name, last_name
+    HAVING COUNT(*) > 1
+)
+SELECT 
+    c.*,
+    'DUPLICATE' AS data_quality_flag
+FROM crm_customers c
+INNER JOIN duplicate_keys d 
+    ON c.email = d.email 
+    AND c.first_name = d.first_name 
+    AND c.last_name = d.last_name
+ORDER BY c.email, c.customer_id;
+
+
+-- ============================================================================
+-- VALIDATION PATTERN 3: REFERENTIAL INTEGRITY CHECKS
+-- ============================================================================
+-- WHY: Orphaned records indicate ETL failures or missing data
+-- WHEN: Run after every data load
+
+-- Find transactions without matching customers (orphaned records)
+SELECT 
+    t.transaction_id,
+    t.customer_id,
+    t.amount,
+    'ORPHANED_TRANSACTION' AS issue_type,
+    'No matching customer in CRM' AS issue_description
+FROM transactions t
+LEFT JOIN crm_customers c ON t.customer_id = c.customer_id
+WHERE c.customer_id IS NULL
+  AND t.customer_id IS NOT NULL;
+
+-- Find customers in billing but not in CRM (missing source data)
+SELECT 
+    b.customer_id,
+    b.email,
+    b.full_name,
+    'MISSING_IN_SOURCE' AS issue_type,
+    'Customer in billing but not in CRM' AS issue_description
+FROM billing_customers b
+LEFT JOIN crm_customers c ON b.customer_id = c.customer_id
+WHERE c.customer_id IS NULL;
+
+
+-- ============================================================================
+-- VALIDATION PATTERN 4: DATA TYPE & FORMAT VALIDATION
+-- ============================================================================
+-- WHY: Invalid formats cause downstream processing failures
+-- WHEN: Run during data ingestion and weekly audits
+
+-- Email format validation (basic pattern)
+SELECT 
+    customer_id,
+    email,
+    'INVALID_EMAIL_FORMAT' AS issue_type
+FROM crm_customers
+WHERE email IS NOT NULL
+  AND email NOT LIKE '%_@__%.__%';
+
+-- Date range validation (catch future dates or unrealistic dates)
+SELECT 
+    customer_id,
+    registration_date,
+    'INVALID_DATE_RANGE' AS issue_type,
+    CASE 
+        WHEN registration_date > CAST(GETDATE() AS DATE) THEN 'Future date'
+        WHEN registration_date < '2020-01-01' THEN 'Too old'
+    END AS issue_description
+FROM crm_customers
+WHERE registration_date > CAST(GETDATE() AS DATE)
+   OR registration_date < '2020-01-01';
+
+-- Numeric range validation
+SELECT 
+    transaction_id,
+    amount,
+    'INVALID_AMOUNT' AS issue_type,
+    CASE 
+        WHEN amount < 0 THEN 'Negative amount'
+        WHEN amount = 0 THEN 'Zero amount'
+        WHEN amount > 10000 THEN 'Exceeds threshold'
+    END AS issue_description
+FROM transactions
+WHERE amount <= 0 OR amount > 10000;
+
+
+-- ============================================================================
+-- VALIDATION PATTERN 5: CROSS-SYSTEM RECONCILIATION
+-- ============================================================================
+-- WHY: Ensure data consistency between source and target systems
+-- WHEN: Run after ETL jobs complete
+
+-- Record count comparison
+SELECT 
+    'CRM' AS system,
+    COUNT(*) AS record_count
+FROM crm_customers
+WHERE account_status = 'Active'
+
+UNION ALL
+
+SELECT 
+    'Billing',
+    COUNT(*)
+FROM billing_customers;
+
+-- Detailed field-level comparison (identify mismatches)
+SELECT 
+    c.customer_id,
+    c.email AS crm_email,
+    b.email AS billing_email,
+    c.country_code AS crm_country,
+    b.billing_country AS billing_country,
+    CASE 
+        WHEN c.email != b.email THEN 'Email mismatch'
+        WHEN c.country_code != b.billing_country THEN 'Country mismatch'
+    END AS mismatch_type
+FROM crm_customers c
+INNER JOIN billing_customers b ON c.customer_id = b.customer_id
+WHERE c.email != b.email 
+   OR c.country_code != b.billing_country;
+
+
+-- ============================================================================
+-- VALIDATION PATTERN 6: COMPLETENESS METRICS (DATA GOVERNANCE SCORECARD)
+-- ============================================================================
+-- WHY: Track data quality over time for governance reporting
+-- WHEN: Generate daily/weekly for dashboards
+
+SELECT 
+    CAST(GETDATE() AS DATE) AS report_date,
+    'crm_customers' AS table_name,
+    COUNT(*) AS total_records,
+    COUNT(email) AS email_populated,
+    COUNT(country_code) AS country_populated,
+    ROUND(100.0 * COUNT(email) / COUNT(*), 2) AS email_completeness_pct,
+    ROUND(100.0 * COUNT(country_code) / COUNT(*), 2) AS country_completeness_pct,
+    -- Quality score (weighted average)
+    ROUND(
+        (100.0 * COUNT(email) / COUNT(*) * 0.6) + 
+        (100.0 * COUNT(country_code) / COUNT(*) * 0.4), 
+        2
+    ) AS overall_quality_score
+FROM crm_customers;
+
+
+-- ============================================================================
+-- VALIDATION PATTERN 7: REUSABLE QUALITY CHECK TEMPLATE
+-- ============================================================================
+-- Use this CTE pattern for complex multi-check validations
+
+WITH quality_checks AS (
+    -- Check 1: Nulls in critical fields
+    SELECT 
+        customer_id,
+        'NULL_EMAIL' AS check_type,
+        'CRITICAL' AS severity
+    FROM crm_customers
+    WHERE email IS NULL
+    
+    UNION ALL
+    
+    -- Check 2: Invalid email format
+    SELECT 
+        customer_id,
+        'INVALID_EMAIL' AS check_type,
+        'HIGH' AS severity
+    FROM crm_customers
+    WHERE email IS NOT NULL 
+      AND email NOT LIKE '%_@__%.__%'
+    
+    UNION ALL
+    
+    -- Check 3: Future dates
+    SELECT 
+        customer_id,
+        'FUTURE_DATE' AS check_type,
+        'HIGH' AS severity
+    FROM crm_customers
+    WHERE registration_date > CAST(GETDATE() AS DATE)
+    
+    UNION ALL
+    
+    -- Check 4: Empty strings (different from NULL)
+    SELECT 
+        customer_id,
+        'EMPTY_LAST_NAME' AS check_type,
+        'MEDIUM' AS severity
+    FROM crm_customers
+    WHERE LTRIM(RTRIM(last_name)) = ''
+)
+SELECT 
+    check_type,
+    severity,
+    COUNT(*) AS issue_count,
+    COUNT(DISTINCT customer_id) AS affected_customers
+FROM quality_checks
+GROUP BY check_type, severity
+ORDER BY 
+    CASE severity 
+        WHEN 'CRITICAL' THEN 1 
+        WHEN 'HIGH' THEN 2 
+        WHEN 'MEDIUM' THEN 3 
+    END,
+    issue_count DESC;
+
+-- ============================================================================
+-- PRACTICE EXERCISE 1: Build Your First Validation Report
+-- ============================================================================
+-- Task: Create a comprehensive data quality report combining all patterns above
+-- Requirements:
+-- 1. Check for nulls in all critical fields
+-- 2. Identify duplicates
+-- 3. Find referential integrity issues
+-- 4. Calculate completeness metrics
+-- 5. Assign a quality score (0-100)
+--
+-- Expected Output: One summary table showing overall health
+-- Try writing this yourself before checking the solution below!
+
+-- SOLUTION (try on your own first!):
+/*
+SELECT 
+    'Data Quality Summary' AS report_name,
+    CAST(GETDATE() AS DATE) AS report_date,
+    (SELECT COUNT(*) FROM crm_customers) AS total_customers,
+    (SELECT COUNT(*) FROM crm_customers WHERE email IS NULL) AS null_emails,
+    (SELECT COUNT(DISTINCT email) FROM crm_customers WHERE email IN (
+        SELECT email FROM crm_customers GROUP BY email HAVING COUNT(*) > 1
+    )) AS duplicate_emails,
+    (SELECT COUNT(*) FROM transactions t LEFT JOIN crm_customers c ON t.customer_id = c.customer_id 
+     WHERE c.customer_id IS NULL AND t.customer_id IS NOT NULL) AS orphaned_transactions;
+*/
+
+-- ============================================================================
+-- SQL SERVER vs POSTGRESQL KEY DIFFERENCES FOR YOUR REFERENCE
+-- ============================================================================
+/*
+1. CURRENT_DATE vs GETDATE() / CAST(GETDATE() AS DATE)
+2. STRING_AGG vs STRING_AGG with CAST (SQL Server requires explicit CAST)
+3. TIMESTAMP vs DATETIME
+4. TRIM() vs LTRIM(RTRIM())
+5. INTEGER vs INT
+6. No need for :: casting in SQL Server (use CAST or CONVERT instead)
+
+Your job requires PostgreSQL/Redshift, but this SQL Server version helps you
+practice NOW while you set up PostgreSQL. The logic is identical!
+*/
