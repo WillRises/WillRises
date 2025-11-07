@@ -1,11 +1,10 @@
-### Hi, I'm Will 👋
-My background is in food and beverage and I'm an adult with autism.
-I love to create things and want to learn how to repurpose furniture. 
-- 🔭 I’m a recent undergraduate degree in business administration.
-- 🌱 I’m currently learning data visualization tools like MySQL, PowerBI
-- 🤔 I’m looking for help with learning how to break into the video game industry as a data/business analyst.
-- 💬 Ask me about food and beverage. I love to cook and make cocktails.
-- 😄 Pronouns: He/Him
-- ⚡ Fun fact: I traveled with a traveling carnival up the east coast to Canada but couldn't cross the border because I lost my ID 
-                on a jump.
+# 👋 Hi, I'm Will McDonald
+
+**Data Analyst | Systems Thinker | SQL Craftsman | BI Storyteller**
+
+I build clarity from complexity.  
+With over five years of experience transforming raw data into actionable intelligence, I specialize in **SQL development, Power BI**, and **process documentation** that align analytics with operational strategy.
+
+My focus isn’t just on dashboards or reports — it’s on creating **living**
+
 -->
